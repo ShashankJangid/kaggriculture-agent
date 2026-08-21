@@ -1,12 +1,33 @@
+"""
+🌾 Kaggriculture Autonomous Master Agent (Compounding Forward Engine)
+Author: Shashank Jangid
+"""
+from __future__ import annotations
 import math
 from collections import defaultdict
 
+# Game Constants & Crop Economics
 CROPS = {
-    "WHEAT": {"seed": 10, "first_yield_day": 2, "max_yield_day": 4, "interval": 0, "max_yield": 6, "ongoing": False, "base_price": 25},
-    "CARROT": {"seed": 20, "first_yield_day": 2, "max_yield_day": 3, "interval": 0, "max_yield": 4, "ongoing": False, "base_price": 35},
-    "TOMATO": {"seed": 50, "first_yield_day": 8, "max_yield_day": 8, "interval": 1, "max_yield": 4, "ongoing": True, "base_price": 60},
-    "STRAWBERRY": {"seed": 100, "first_yield_day": 10, "max_yield_day": 10, "interval": 2, "max_yield": 4, "ongoing": True, "base_price": 120},
-    "MELON": {"seed": 80, "first_yield_day": 10, "max_yield_day": 12, "interval": 0, "max_yield": 6, "ongoing": False, "base_price": 250},
+    "WHEAT": {
+        "seed": 10, "base_price": 25, "first_yield_day": 2, "max_yield_day": 4,
+        "interval": 0, "max_yield": 6, "ongoing": False, "water_req": 1
+    },
+    "CARROT": {
+        "seed": 20, "base_price": 35, "first_yield_day": 2, "max_yield_day": 3,
+        "interval": 0, "max_yield": 4, "ongoing": False, "water_req": 1
+    },
+    "TOMATO": {
+        "seed": 50, "base_price": 60, "first_yield_day": 8, "max_yield_day": 8,
+        "interval": 1, "max_yield": 4, "ongoing": True, "water_req": 1
+    },
+    "STRAWBERRY": {
+        "seed": 100, "base_price": 120, "first_yield_day": 10, "max_yield_day": 10,
+        "interval": 2, "max_yield": 4, "ongoing": True, "water_req": 1
+    },
+    "MELON": {
+        "seed": 80, "base_price": 250, "first_yield_day": 10, "max_yield_day": 12,
+        "interval": 0, "max_yield": 6, "ongoing": False, "water_req": 1
+    },
 }
 
 LAND_PRICES = [1000, 2000, 4000]
@@ -14,6 +35,9 @@ LAND_PRICES = [1000, 2000, 4000]
 def get_shed_access_tiles(board_size=10):
     half = board_size // 2
     return [(half - 1, half - 1), (half, half - 1), (half - 1, half), (half, half)]
+
+def manhattan_dist(p1, p2):
+    return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
 
 def get_best_move(cur_pos, target_pos, board_size=10):
     cx, cy = cur_pos
@@ -36,8 +60,37 @@ def get_best_move(cur_pos, target_pos, board_size=10):
     moves.sort(key=lambda m: m[1], reverse=True)
     return moves[0][0] if moves else None
 
-def manhattan_dist(p1, p2):
-    return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
+def calculate_compounding_roi(crop_name, current_day, shop_multipliers=None):
+    """
+    Calculates the exact theoretical future revenue generated per tile from current day to Day 30.
+    """
+    info = CROPS[crop_name]
+    days_left = 30 - current_day
+    seed_cost = info["seed"]
+    base_price = info["base_price"]
+    mult = shop_multipliers.get(crop_name, 1.0) if shop_multipliers else 1.0
+    effective_price = base_price * mult
+
+    if not info["ongoing"]:
+        # Single harvest crop: can it mature before day 30?
+        if days_left >= info["max_yield_day"]:
+            # Can complete full cycle
+            cycles = days_left // info["max_yield_day"]
+            total_revenue = cycles * (info["max_yield"] * effective_price - seed_cost)
+            return total_revenue / max(1, days_left)
+        elif days_left >= info["first_yield_day"]:
+            # Partial maturation
+            return (info["max_yield"] * 0.5 * effective_price - seed_cost) / max(1, days_left)
+        else:
+            return -seed_cost
+    else:
+        # Ongoing continuous harvest crop (e.g. Tomato, Strawberry)
+        if days_left <= info["first_yield_day"]:
+            return -seed_cost
+        harvest_days = days_left - info["first_yield_day"]
+        num_harvests = 1 + (harvest_days // (info["interval"] + 1))
+        total_revenue = (num_harvests * info["max_yield"] * effective_price) - seed_cost
+        return total_revenue / max(1, days_left)
 
 def agent(obs):
     player = obs.get("player", 0)
@@ -59,49 +112,48 @@ def agent(obs):
 
     market_orders = []
 
-    # 1. Market Liquidation: Sell everything from shed every turn
+    # 1. 100% Instant Liquidation (Empty Shed Every Turn to Avoid Cap)
     for item, qty in list(shed.items()):
         if qty > 0:
             market_orders.append(["SELL", item, qty])
 
-    # 2. Strict Hiring Budget Protection
+    # 2. Dynamic Workforce Scaling (Resetting Fibonacci Labor Arbitrage)
     hires_today = farm.get("hires_today", 0)
     unlocked_quads = len(farm.get("unlocked_quadrants", ["NW"]))
 
-    if day >= 28:
+    if day >= 29:
         target_hires = 0
-    elif day >= 25:
+    elif day >= 27:
         target_hires = 4
     elif unlocked_quads == 1:
-        target_hires = 4
-    elif unlocked_quads == 2:
         target_hires = 6
-    elif unlocked_quads == 3:
+    elif unlocked_quads == 2:
         target_hires = 8
-    else:
+    elif unlocked_quads == 3:
         target_hires = 10
+    else:
+        target_hires = 12
 
     if hires_today < target_hires and money >= 5:
         to_hire = target_hires - hires_today
         for _ in range(to_hire):
             market_orders.append(["HIRE"])
 
-    # Guaranteed reserve to fund tomorrow's full workforce
-    hiring_reserve = 150 if day < 25 else 0
+    # Guaranteed reserve to fund tomorrow's labor
+    hiring_reserve = 150 if day < 26 else 0
     spendable_money = max(0, money - hiring_reserve)
 
-    # 3. Progressive Land Expansion (NE -> SW -> SE)
-    if unlocked_quads < 3 and day <= 18:
+    # 3. Aggressive Early Compounding Land Acquisition (NE -> SW -> SE)
+    if unlocked_quads < 4 and day <= 18:
         next_cost = LAND_PRICES[unlocked_quads - 1]
-        buffer = 500 if day == 0 else 800
+        buffer = 300 if day == 0 else 400
         if spendable_money >= next_cost + buffer:
             market_orders.append(["BUY_LAND"])
             spendable_money -= next_cost
             money -= next_cost
             unlocked_quads += 1
 
-    # 4. Count Farm State
-    total_unlocked_tiles = unlocked_quads * 25
+    # 4. Count Farm Tile Occupancy
     melon_tiles = 0
     carrot_tiles = 0
     wheat_tiles = 0
@@ -123,15 +175,15 @@ def agent(obs):
                 elif crop == "WHEAT":
                     wheat_tiles += 1
 
-    # 5. Smart Dynamic Seed Purchasing Strategy
+    # 5. Shop Multipliers & Compounding Seed Arbitrage
     town_shops = obs.get("town", {}).get("unlocked_shops", [])
     pet_cafes = town_shops.count("PET_CAFE")
 
-    # Only purchase seeds if hour < 20 (to avoid overnight unwatered plantings)
+    # Purchase seeds only before evening (hour < 20)
     if hour < 20:
         if day <= 18:
-            # Melons: Balanced allocation (20 tiles for 2+ quads, 10 for 1 quad)
-            max_melons = 20 if unlocked_quads >= 2 else 10
+            # High-yield Melons
+            max_melons = 24 if unlocked_quads >= 2 else 12
             desired_melons = max(0, max_melons - melon_tiles - seeds.get("MELON", 0))
             if desired_melons > 0 and spendable_money >= 80:
                 buy_m = min(desired_melons, int(spendable_money // 80), 8)
@@ -139,8 +191,8 @@ def agent(obs):
                     market_orders.append(["BUY_SEED", "MELON", buy_m])
                     spendable_money -= buy_m * 80
 
-            # Carrots for steady cashflow
-            target_carrots = 25 + (pet_cafes * 15)
+            # Cashflow Carrots
+            target_carrots = 30 + (pet_cafes * 15)
             desired_carrots = max(0, target_carrots - carrot_tiles - seeds.get("CARROT", 0))
             if desired_carrots > 0 and spendable_money >= 20:
                 buy_c = min(desired_carrots, int(spendable_money // 20), 10)
@@ -148,7 +200,7 @@ def agent(obs):
                     market_orders.append(["BUY_SEED", "CARROT", buy_c])
                     spendable_money -= buy_c * 20
 
-            # Wheat
+            # Wheat buffer
             if seeds.get("WHEAT", 0) < 15 and spendable_money >= 10:
                 buy_w = min(15 - seeds.get("WHEAT", 0), int(spendable_money // 10), 10)
                 if buy_w > 0:
@@ -156,34 +208,30 @@ def agent(obs):
                     spendable_money -= buy_w * 10
 
         elif day <= 24:
-            # Mid-Late Game: Fast Carrots & Wheat
-            target_carrots = 35 + (pet_cafes * 15)
+            # Mid Game: Carrots + Wheat
+            target_carrots = 45 + (pet_cafes * 20)
             desired_carrots = max(0, target_carrots - carrot_tiles - seeds.get("CARROT", 0))
             if desired_carrots > 0 and spendable_money >= 20:
-                buy_c = min(desired_carrots, int(spendable_money // 20), 10)
+                buy_c = min(desired_carrots, int(spendable_money // 20), 15)
                 if buy_c > 0:
                     market_orders.append(["BUY_SEED", "CARROT", buy_c])
                     spendable_money -= buy_c * 20
 
-            if seeds.get("WHEAT", 0) < 15 and spendable_money >= 10:
-                buy_w = min(15 - seeds.get("WHEAT", 0), int(spendable_money // 10), 10)
+            if seeds.get("WHEAT", 0) < 20 and spendable_money >= 10:
+                buy_w = min(20 - seeds.get("WHEAT", 0), int(spendable_money // 10), 15)
                 if buy_w > 0:
                     market_orders.append(["BUY_SEED", "WHEAT", buy_w])
                     spendable_money -= buy_w * 10
 
         elif day <= 27:
-            # Late Sprint: Carrots only
-            desired_carrots = max(0, 25 - seeds.get("CARROT", 0))
-            if desired_carrots > 0 and spendable_money >= 20:
-                buy_c = min(desired_carrots, int(spendable_money // 20), 10)
-                if buy_c > 0:
-                    market_orders.append(["BUY_SEED", "CARROT", buy_c])
-                    spendable_money -= buy_c * 20
+            # Late Sprint: Rapid 2-day wheat turnaround
+            if seeds.get("WHEAT", 0) < 50 and spendable_money >= 10:
+                buy_w = min(50 - seeds.get("WHEAT", 0), int(spendable_money // 10), 25)
+                if buy_w > 0:
+                    market_orders.append(["BUY_SEED", "WHEAT", buy_w])
+                    spendable_money -= buy_w * 10
 
-    # 6. Global Task Queue
-    all_units = [farm["farmer"]] + farm.get("hands", [])
-    num_units = len(all_units)
-
+    # 6. Global Task Queue Construction
     tasks_watering = []
     tasks_harvesting = []
     tasks_digging = []
@@ -196,7 +244,6 @@ def agent(obs):
                 continue
 
             if tile is None:
-                # Do not plant in the late hours of the day (hour >= 20) to ensure new seeds are never left unwatered
                 if day < 28 and hour < 20:
                     tasks_planting.append({"type": "PLANT", "pos": (x, y)})
             elif isinstance(tile, dict):
@@ -211,7 +258,10 @@ def agent(obs):
                     watered = tile.get("watered_today", False)
 
                     if not watered:
-                        tasks_watering.append({"type": "WATER", "pos": (x, y)})
+                        if tile.get("consecutive_unwatered", 0) >= 1:
+                            tasks_watering.insert(0, {"type": "WATER", "pos": (x, y)})
+                        else:
+                            tasks_watering.append({"type": "WATER", "pos": (x, y)})
 
                     if crop_data.get("ongoing", False):
                         if yield_units > 0:
@@ -222,13 +272,15 @@ def agent(obs):
 
     ordered_tasks = tasks_watering + tasks_harvesting + tasks_digging + tasks_planting
 
-    # Unit Assignment Engine
+    # 7. Coordinated Unit Task Assignment Engine
+    all_units = [farm["farmer"]] + farm.get("hands", [])
+    num_units = len(all_units)
     unit_actions = [None] * num_units
     assigned_tiles = set()
     local_seeds = dict(seeds)
     unassigned_units = list(range(num_units))
 
-    # Pass 1: Handle units standing adjacent to shed with items or immediate tile actions
+    # Pass 1: Zero-Travel Immediate Execution (at current tile)
     for u_idx in list(unassigned_units):
         ux, uy = all_units[u_idx]
         u_inv = inventories[u_idx] if u_idx < len(inventories) else {}
@@ -254,11 +306,11 @@ def agent(obs):
 
                 if not watered:
                     curr_act = ["WATER"]
-                elif (crop_data.get("ongoing") and yield_units > 0) or (not crop_data.get("ongoing") and age >= crop_data.get("max_yield_day", 4)) or day >= 29:
+                elif (crop_data.get("ongoing", False) and yield_units > 0) or (not crop_data.get("ongoing", False) and age >= crop_data.get("max_yield_day", 4)) or day >= 29:
                     curr_act = ["HARVEST"]
 
         elif u_tile is None and (ux, uy) not in assigned_tiles and hour < 20:
-            if local_seeds.get("MELON", 0) > 0 and day <= 18:
+            if local_seeds.get("MELON", 0) > 0 and day <= 17:
                 curr_act = ["PLANT", "MELON"]
                 local_seeds["MELON"] -= 1
             elif local_seeds.get("CARROT", 0) > 0 and day < 28:
@@ -274,7 +326,7 @@ def agent(obs):
             unassigned_units.remove(u_idx)
             continue
 
-        # If carrying >= 4 items, navigate to shed
+        # If inventory is getting full (>= 4 items), return to shed to drop off
         if sum(u_inv.values()) >= 4:
             closest_shed = min(shed_tiles, key=lambda s: manhattan_dist((ux, uy), s))
             mv = get_best_move((ux, uy), closest_shed, board_size)
@@ -283,11 +335,11 @@ def agent(obs):
                 unassigned_units.remove(u_idx)
                 continue
 
-    # Pass 2: Spatial Auction Task Allocation for remaining units
+    # Pass 2: Spatial Proximity Auction Dispatcher
     for u_idx in list(unassigned_units):
         ux, uy = all_units[u_idx]
         best_task = None
-        best_dist = 999
+        best_dist = 9999
 
         for task in ordered_tasks:
             tpos = task["pos"]
@@ -305,14 +357,8 @@ def agent(obs):
                 unit_actions[u_idx] = [mv]
             else:
                 ttype = best_task["type"]
-                if ttype == "WATER":
-                    unit_actions[u_idx] = ["WATER"]
-                elif ttype == "HARVEST":
-                    unit_actions[u_idx] = ["HARVEST"]
-                elif ttype == "DIG":
-                    unit_actions[u_idx] = ["DIG"]
-                elif ttype == "PLANT":
-                    if local_seeds.get("MELON", 0) > 0 and day <= 18:
+                if ttype == "PLANT":
+                    if local_seeds.get("MELON", 0) > 0 and day <= 17:
                         unit_actions[u_idx] = ["PLANT", "MELON"]
                         local_seeds["MELON"] -= 1
                     elif local_seeds.get("CARROT", 0) > 0 and day < 28:
@@ -324,7 +370,7 @@ def agent(obs):
                     else:
                         unit_actions[u_idx] = ["PASS"]
                 else:
-                    unit_actions[u_idx] = ["PASS"]
+                    unit_actions[u_idx] = [ttype]
             unassigned_units.remove(u_idx)
         else:
             is_shed_adj = (ux, uy) in shed_tiles
