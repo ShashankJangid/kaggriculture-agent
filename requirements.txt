@@ -1,0 +1,2 @@
+kaggle-environments>=1.32.0
+kaggle>=2.2.0
