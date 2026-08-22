@@ -1,11 +1,11 @@
 """
-🌾 Kaggriculture Perfect Compounding Agent (V31)
+🌾 Kaggriculture SOTA Master Agent — Ultra-Precision Compounding Engine (V30)
 Author: Shashank Jangid
 Key Highlights:
-- 75% Optimal Land Allocation (3 Quadrants = 75 Tiles)
-- Direct Manhattan Spatial Routing
-- Forward-Yield Crop Scheduling (20 Melons -> 50 Fast Carrots -> Endgame Wheat Push)
-- Zero-Decay Hydration Priority & Instant Liquidation
+- 75% Optimal Land Allocation (3 Quadrants)
+- Spatial Collision Avoidance & Dynamic Route Arbitration
+- Forward-Yield Crop Scheduling (Melons -> Fast Carrots -> Endgame Wheat Push)
+- Instant Shed Liquidation & Zero-Decay Hydration Protocol
 """
 import math
 from collections import defaultdict
@@ -24,7 +24,10 @@ def get_shed_access_tiles(board_size=10):
     half = board_size // 2
     return [(half - 1, half - 1), (half, half - 1), (half - 1, half), (half, half)]
 
-def get_best_move(cur_pos, target_pos, board_size=10):
+def manhattan_dist(p1, p2):
+    return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
+
+def get_best_move(cur_pos, target_pos, board_size=10, reserved_positions=None):
     cx, cy = cur_pos
     tx, ty = target_pos
     if cx == tx and cy == ty:
@@ -34,19 +37,36 @@ def get_best_move(cur_pos, target_pos, board_size=10):
 
     moves = []
     if dx > 0:
-        moves.append(("EAST", abs(dx)))
+        moves.append(("EAST", (cx + 1, cy), abs(dx) + abs(dy)))
     elif dx < 0:
-        moves.append(("WEST", abs(dx)))
+        moves.append(("WEST", (cx - 1, cy), abs(dx) + abs(dy)))
     if dy > 0:
-        moves.append(("SOUTH", abs(dy)))
+        moves.append(("SOUTH", (cx, cy + 1), abs(dx) + abs(dy)))
     elif dy < 0:
-        moves.append(("NORTH", abs(dy)))
+        moves.append(("NORTH", (cx, cy - 1), abs(dx) + abs(dy)))
 
-    moves.sort(key=lambda m: m[1], reverse=True)
+    # Secondary lateral moves
+    if dx == 0:
+        moves.append(("EAST", (cx + 1, cy), abs(dx) + abs(dy) + 2))
+        moves.append(("WEST", (cx - 1, cy), abs(dx) + abs(dy) + 2))
+    if dy == 0:
+        moves.append(("SOUTH", (cx, cy + 1), abs(dx) + abs(dy) + 2))
+        moves.append(("NORTH", (cx, cy - 1), abs(dx) + abs(dy) + 2))
+
+    for mv, npos, dist in moves:
+        nx, ny = npos
+        if 0 <= nx < board_size and 0 <= ny < board_size:
+            if reserved_positions is None or npos not in reserved_positions:
+                return mv
     return moves[0][0] if moves else None
 
-def manhattan_dist(p1, p2):
-    return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
+def _next_pos(pos, move):
+    x, y = pos
+    if move == "NORTH": return (x, y - 1)
+    if move == "SOUTH": return (x, y + 1)
+    if move == "EAST": return (x + 1, y)
+    if move == "WEST": return (x - 1, y)
+    return pos
 
 def agent(obs):
     player = obs.get("player", 0)
@@ -68,7 +88,7 @@ def agent(obs):
 
     market_orders = []
 
-    # 1. Market Liquidation (Sell everything in shed instantly)
+    # 1. Market Liquidation (Sell outputs cleanly every turn)
     for item, qty in list(shed.items()):
         if qty > 0:
             market_orders.append(["SELL", item, qty])
@@ -95,7 +115,7 @@ def agent(obs):
         for _ in range(to_hire):
             market_orders.append(["HIRE"])
 
-    # 3. Progressive Land Expansion (75% Land Cap = 3 Quads max)
+    # 3. Progressive Land Expansion (Optimal 75% Land Cap)
     hiring_reserve = 150 if day < 26 else 0
     spendable_money = max(0, money - hiring_reserve)
 
@@ -211,6 +231,7 @@ def agent(obs):
     assigned_tiles = set()
     local_seeds = dict(seeds)
     unassigned_units = list(range(num_units))
+    reserved_next_moves = set()
 
     # Pass 1: Standing Actions & Shed Deposits
     for u_idx in list(unassigned_units):
@@ -221,6 +242,7 @@ def agent(obs):
 
         if sum(u_inv.values()) > 0 and is_shed_adj:
             unit_actions[u_idx] = ["DROP"]
+            reserved_next_moves.add((ux, uy))
             unassigned_units.remove(u_idx)
             continue
 
@@ -260,18 +282,20 @@ def agent(obs):
         if curr_act is not None:
             unit_actions[u_idx] = curr_act
             assigned_tiles.add((ux, uy))
+            reserved_next_moves.add((ux, uy))
             unassigned_units.remove(u_idx)
             continue
 
         if sum(u_inv.values()) >= 4 and not is_shed_adj:
             closest_shed = min(shed_tiles, key=lambda s: manhattan_dist((ux, uy), s))
-            mv = get_best_move((ux, uy), closest_shed, board_size)
+            mv = get_best_move((ux, uy), closest_shed, board_size, reserved_next_moves)
             if mv:
                 unit_actions[u_idx] = [mv]
+                reserved_next_moves.add(_next_pos((ux, uy), mv))
                 unassigned_units.remove(u_idx)
                 continue
 
-    # Pass 2: Spatial Task Assignment
+    # Pass 2: Spatial Assignment to Nearest Tasks
     for task in ordered_tasks:
         if not unassigned_units:
             break
@@ -289,9 +313,10 @@ def agent(obs):
 
         if best_u is not None:
             ux, uy = all_units[best_u]
-            mv = get_best_move((ux, uy), tpos, board_size)
+            mv = get_best_move((ux, uy), tpos, board_size, reserved_next_moves)
             if mv:
                 unit_actions[best_u] = [mv]
+                reserved_next_moves.add(_next_pos((ux, uy), mv))
             else:
                 ttype = task["type"]
                 if ttype == "PLANT":
@@ -308,20 +333,23 @@ def agent(obs):
                         unit_actions[best_u] = ["PASS"]
                 else:
                     unit_actions[best_u] = [ttype]
+                reserved_next_moves.add((ux, uy))
 
             assigned_tiles.add(tpos)
             unassigned_units.remove(best_u)
 
-    # Pass 3: Idle Units Return towards Shed
+    # Pass 3: Idle Units Return to Shed
     for u_idx in unassigned_units:
         ux, uy = all_units[u_idx]
         is_shed_adj = (ux, uy) in shed_tiles
         if not is_shed_adj:
             closest_shed = min(shed_tiles, key=lambda s: manhattan_dist((ux, uy), s))
-            mv = get_best_move((ux, uy), closest_shed, board_size)
+            mv = get_best_move((ux, uy), closest_shed, board_size, reserved_next_moves)
             unit_actions[u_idx] = [mv] if mv else ["PASS"]
+            reserved_next_moves.add(_next_pos((ux, uy), mv) if mv else (ux, uy))
         else:
             unit_actions[u_idx] = ["PASS"]
+            reserved_next_moves.add((ux, uy))
 
     farmer_action = unit_actions[0] if unit_actions and unit_actions[0] is not None else ["PASS"]
     hands_actions = [a if a is not None else ["PASS"] for a in unit_actions[1:]]
