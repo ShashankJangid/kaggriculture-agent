@@ -43,3 +43,15 @@ logs/
 
 # macOS
 .DS_Store
+
+# Simulation replays & large files
+*.jsonl
+*.zip
+*.csv
+episode-*.json
+trace_*.py
+test_*.py
+analyze_top_*.py
+check_tile_*.py
+animal_research.py
+generate_notebook.py
