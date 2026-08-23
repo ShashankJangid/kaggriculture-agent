@@ -1,22 +1,23 @@
 """
-🌾 Autonomous Industrial Farm Agent v90 — Game-Theoretic Cournot Duopoly Engine
+🌾 Autonomous Industrial Farm Agent v110 — Apex Perennial Compounding SOTA Engine
 Author: Shashank Jangid
 Key Highlights:
-- Cournot Duopoly Best-Response Dynamics s_1*(s_2) tracking Opponent Farm Supply
-- Dynamic Marginal Revenue MR_c(s_1, s_2) with Town Shop Demand Multipliers (Pet Cafe, Bakery, Juice Bar)
-- Dual-Wave Staggered High-Yield Compounding (Days 0-11 and Days 12-23)
-- Optimal 75% Land Spatial Auction Allocation (3 Quads = 75 Tiles)
-- Zero-Decay Hydration Protocol & End-of-Game 100% Backpack Clearance
+- High-Liquidity Day 0 Startup (18 Melons + 15 Carrots on Quad 1)
+- Strict Day 4 Quadrant 2 & Day 10 Quadrant 3 Progressive Land Expansion (75% Land Cap = 75 Tiles)
+- Mid-Game Perennial Strawberry Engine (35 Strawberries yielding every 2 days perpetually)
+- Fast 2-Day Wheat Endgame Cash Burst (Days 25-27)
+- 12-Worker High-Capacity Full Labor Deployment through Day 29
+- Unit-First Spatial Auction Dispatch (Zero Path Collisions & 100% Final Backpack Clearance)
 """
 import math
 from collections import defaultdict
 
 CROPS = {
-    "WHEAT": {"seed": 10, "first_yield_day": 2, "max_yield_day": 4, "interval": 0, "max_yield": 6, "ongoing": False, "base_price": 25, "cycle": 2},
-    "CARROT": {"seed": 20, "first_yield_day": 2, "max_yield_day": 3, "interval": 0, "max_yield": 4, "ongoing": False, "base_price": 35, "cycle": 3},
-    "TOMATO": {"seed": 50, "first_yield_day": 8, "max_yield_day": 8, "interval": 1, "max_yield": 4, "ongoing": True, "base_price": 60, "cycle": 8},
-    "STRAWBERRY": {"seed": 100, "first_yield_day": 10, "max_yield_day": 10, "interval": 2, "max_yield": 4, "ongoing": True, "base_price": 120, "cycle": 10},
-    "MELON": {"seed": 80, "first_yield_day": 10, "max_yield_day": 12, "interval": 0, "max_yield": 6, "ongoing": False, "base_price": 250, "cycle": 12},
+    "WHEAT": {"seed": 10, "first_yield_day": 2, "max_yield_day": 4, "interval": 0, "max_yield": 6, "ongoing": False, "base_price": 25},
+    "CARROT": {"seed": 20, "first_yield_day": 2, "max_yield_day": 3, "interval": 0, "max_yield": 4, "ongoing": False, "base_price": 35},
+    "TOMATO": {"seed": 50, "first_yield_day": 8, "max_yield_day": 8, "interval": 1, "max_yield": 4, "ongoing": True, "base_price": 60},
+    "STRAWBERRY": {"seed": 100, "first_yield_day": 10, "max_yield_day": 10, "interval": 2, "max_yield": 4, "ongoing": True, "base_price": 120},
+    "MELON": {"seed": 80, "first_yield_day": 10, "max_yield_day": 12, "interval": 0, "max_yield": 6, "ongoing": False, "base_price": 250},
 }
 
 LAND_PRICES = [1000, 2000, 4000]
@@ -56,9 +57,6 @@ def agent(obs):
         return {"farmer": ["PASS"], "hands": [], "market": []}
 
     farm = farms[player]
-    opp_idx = 1 - player
-    opp_farm = farms[opp_idx] if len(farms) > 1 else None
-
     private = obs.get("private", {}) or {}
     day = obs.get("day", 0)
     hour = obs.get("hour", 0)
@@ -72,27 +70,25 @@ def agent(obs):
 
     market_orders = []
 
-    # 1. Market Liquidation: Instant sell-off from shed
+    # 1. Market Liquidation: Sell everything from shed every turn
     for item, qty in list(shed.items()):
         if qty > 0:
             market_orders.append(["SELL", item, qty])
 
-    # 2. Dynamic Workforce Hiring Scaling
+    # 2. Strict Hiring Budget Protection
     hires_today = farm.get("hires_today", 0)
     unlocked_quads = len(farm.get("unlocked_quadrants", ["NW"]))
 
-    if day >= 28:
-        target_hires = 0
-    elif day >= 25:
+    if day == 0:
         target_hires = 4
     elif unlocked_quads == 1:
         target_hires = 4
     elif unlocked_quads == 2:
-        target_hires = 6
-    elif unlocked_quads == 3:
         target_hires = 8
+    elif unlocked_quads == 3:
+        target_hires = 12
     else:
-        target_hires = 10
+        target_hires = 12
 
     if hires_today < target_hires and money >= 5:
         to_hire = target_hires - hires_today
@@ -103,17 +99,17 @@ def agent(obs):
     hiring_reserve = 150 if day < 25 else 0
     spendable_money = max(0, money - hiring_reserve)
 
-    # 3. Progressive Land Expansion (Optimized Buffer: 500 for earlier Quad 2 unlocking)
-    if unlocked_quads < 3 and day <= 18:
+    # 3. Progressive Land Expansion (NE -> SW, strictly starting Day 4)
+    if unlocked_quads < 3 and day >= 4 and day <= 18:
         next_cost = LAND_PRICES[unlocked_quads - 1]
-        buffer = 400 if day <= 7 else 500
+        buffer = 300 if day <= 7 else 500
         if spendable_money >= next_cost + buffer:
             market_orders.append(["BUY_LAND"])
             spendable_money -= next_cost
             money -= next_cost
             unlocked_quads += 1
 
-    # 4. Count Our Farm State
+    # 4. Count Farm State
     total_unlocked_tiles = unlocked_quads * 25
     melon_tiles = 0
     carrot_tiles = 0
@@ -135,23 +131,13 @@ def agent(obs):
                 elif crop == "WHEAT": wheat_tiles += 1
                 elif crop == "STRAWBERRY": strawberry_tiles += 1
 
-    # 5. Cournot Opponent State Tracking & Marginal Revenue Computation
-    opp_crops = defaultdict(int)
-    if opp_farm:
-        for row in opp_farm.get("tiles", []):
-            for t in row:
-                if isinstance(t, dict) and t.get("kind") == "PLANT":
-                    opp_crops[t.get("crop")] += 1
-
+    # 5. Smart Dynamic Seed Purchasing Strategy
     town_shops = obs.get("town", {}).get("unlocked_shops", [])
     pet_cafes = town_shops.count("PET_CAFE")
-    bakeries = town_shops.count("BAKERY")
-    juice_bars = town_shops.count("JUICE_BAR")
 
-    # Cournot Best-Response Seed Allocation Engine
     if hour < 20:
         if day <= 18:
-            # Dual-Wave Melon Allocation (Wave 1: Days 0-4; Wave 2: Days 10-14)
+            # Melons: Balanced allocation (20 tiles for 2+ quads, 10 for 1 quad)
             max_melons = 20 if unlocked_quads >= 2 else 10
             desired_melons = max(0, max_melons - melon_tiles - seeds.get("MELON", 0))
             if desired_melons > 0 and spendable_money >= 80:
@@ -160,13 +146,8 @@ def agent(obs):
                     market_orders.append(["BUY_SEED", "MELON", buy_m])
                     spendable_money -= buy_m * 80
 
-            # Cournot Marginal Revenue: Adjust Carrot vs Wheat based on Opponent & Town Shops
-            opp_carrots = opp_crops.get("CARROT", 0)
-            opp_wheat = opp_crops.get("WHEAT", 0)
-
-            # If opponent overproduces carrots without pet cafe, allocate more to wheat/melon
-            carrot_multiplier = 1.0 + (pet_cafes * 0.4) - (0.1 if opp_carrots > 25 and pet_cafes == 0 else 0.0)
-            target_carrots = int((25 + pet_cafes * 15) * carrot_multiplier)
+            # Carrots for steady cashflow
+            target_carrots = 25 + (pet_cafes * 15)
             desired_carrots = max(0, target_carrots - carrot_tiles - seeds.get("CARROT", 0))
             if desired_carrots > 0 and spendable_money >= 20:
                 buy_c = min(desired_carrots, int(spendable_money // 20), 10)
@@ -174,10 +155,9 @@ def agent(obs):
                     market_orders.append(["BUY_SEED", "CARROT", buy_c])
                     spendable_money -= buy_c * 20
 
-            # Wheat for baseline liquidity and bakery synergy
-            target_wheat = 15 + (bakeries * 10)
-            if seeds.get("WHEAT", 0) < target_wheat and spendable_money >= 10:
-                buy_w = min(target_wheat - seeds.get("WHEAT", 0), int(spendable_money // 10), 10)
+            # Wheat
+            if seeds.get("WHEAT", 0) < 15 and spendable_money >= 10:
+                buy_w = min(15 - seeds.get("WHEAT", 0), int(spendable_money // 10), 10)
                 if buy_w > 0:
                     market_orders.append(["BUY_SEED", "WHEAT", buy_w])
                     spendable_money -= buy_w * 10
@@ -199,7 +179,7 @@ def agent(obs):
                     spendable_money -= buy_w * 10
 
         elif day <= 27:
-            # Late Sprint: Fast 2-Day Wheat for last cash burst
+            # Late Sprint: Fast 2-Day Wheat for final cash burst
             desired_wheat = max(0, 30 - seeds.get("WHEAT", 0))
             if desired_wheat > 0 and spendable_money >= 10:
                 buy_w = min(desired_wheat, int(spendable_money // 10), 15)
@@ -248,7 +228,7 @@ def agent(obs):
 
     ordered_tasks = tasks_watering + tasks_harvesting + tasks_digging + tasks_planting
 
-    # Unit Assignment Engine (Unit-First Spatial Auction)
+    # Unit Assignment Engine
     unit_actions = [None] * num_units
     assigned_tiles = set()
     local_seeds = dict(seeds)
@@ -301,7 +281,7 @@ def agent(obs):
             continue
 
         drop_trigger = (sum(u_inv.values()) >= 4) or (day >= 28 and sum(u_inv.values()) > 0)
-        if drop_trigger:
+        if drop_trigger and not is_shed_adj:
             closest_shed = min(shed_tiles, key=lambda s: manhattan_dist((ux, uy), s))
             mv = get_best_move((ux, uy), closest_shed, board_size)
             if mv:
