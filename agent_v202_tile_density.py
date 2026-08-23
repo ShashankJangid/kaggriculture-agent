@@ -1,17 +1,19 @@
 """
-🌾 Autonomous Industrial Farm Agent v203 — V90 + Endgame Worker Fix Only
+🌾 Autonomous Industrial Farm Agent v202 — V90 + Tile Density Engine
 Author: Shashank Jangid
 
-Precise root-cause from trace analysis:
-  V90 on Day 28-29: 33 tiles in ground, only 1 farmer
-    → 26 wheat tiles + 4 melon tiles sitting unharvested
-    → Estimated $26*25 + $4*250 = $1,650 stranded per game
+Root-cause analysis of V90 ($39,184 avg):
+  ❌ PROBLEM 1 (Major): Days 13–24 have 19–25 EMPTY TILES out of 75.
+     V90 caps carrot target at 25 + pet_cafe*15 = 25 tiles, but has 55 non-melon tiles.
+     That's 30 empty tiles × ~$500 revenue/tile/week = ~$15,000 wasted per game.
+  ❌ PROBLEM 2 (Major): Worker cutoff — V90 cuts to 4 workers on Day 25, 0 on Day 28.
+     On Day 28 there are 28–34 tiles still in ground with just 1 farmer = harvest bottleneck.
+  ✅ EVERYTHING ELSE IN V90 IS KEPT IDENTICAL (do not touch what works)
 
-THIS AGENT: V90 code EXACTLY, only one change:
-  target_hires = 4 on Day 28-29 (was 0 in V90)
-  target_hires = 6 on Day 25-27 (was 4 in V90)
-
-Everything else: UNTOUCHED.
+FIXES IN V202:
+  FIX 1: Carrot target = total_unlocked_tiles - (melons_in_ground + melon_seeds)
+          This fills ALL available tiles, not just a fixed 25.
+  FIX 2: Keep 8 workers through Day 27, 4 through Day 29 (not 0).
 """
 import math
 from collections import defaultdict
@@ -23,6 +25,7 @@ CROPS = {
     "STRAWBERRY": {"seed": 100, "first_yield_day": 10, "max_yield_day": 10, "interval": 2, "max_yield": 4, "ongoing": True,  "base_price": 120, "cycle": 10},
     "MELON":      {"seed": 80,  "first_yield_day": 10, "max_yield_day": 12, "interval": 0, "max_yield": 6, "ongoing": False, "base_price": 250, "cycle": 12},
 }
+
 LAND_PRICES = [1000, 2000, 4000]
 
 
@@ -73,21 +76,21 @@ def agent(obs):
 
     market_orders = []
 
-    # 1. Market Liquidation (UNCHANGED)
+    # 1. Instant shed liquidation (unchanged from V90)
     for item, qty in list(shed.items()):
         if qty > 0:
             market_orders.append(["SELL", item, qty])
 
-    # 2. Hiring — SINGLE CHANGE: keep 4-6 workers on Days 25-29
-    # V90: Day>=28 → 0, Day>=25 → 4
-    # V203: Day>=28 → 4, Day>=25 → 6
+    # 2. FIX 2: Smarter worker schedule
+    # V90: cuts to 4 on Day 25, 0 on Day 28 → leaves 28+ tiles unharvestable
+    # V202: keeps 8 workers through Day 27, then 4 on Days 28–29 for final clearance
     hires_today = farm.get("hires_today", 0)
     unlocked_quads = len(farm.get("unlocked_quadrants", ["NW"]))
 
     if day >= 28:
-        target_hires = 4    # FIX: was 0
+        target_hires = 4    # FIX 2: was 0 in V90; need workers for final harvest
     elif day >= 25:
-        target_hires = 6    # FIX: was 4
+        target_hires = 8    # FIX 2: was 4 in V90; more workers for late-game harvest
     elif unlocked_quads == 1:
         target_hires = 4
     elif unlocked_quads == 2:
@@ -101,11 +104,11 @@ def agent(obs):
         for _ in range(target_hires - hires_today):
             market_orders.append(["HIRE"])
 
-    # Reserve (UNCHANGED)
+    # Hiring reserve (unchanged from V90)
     hiring_reserve = 150 if day < 25 else 0
     spendable_money = max(0, money - hiring_reserve)
 
-    # 3. Land expansion (UNCHANGED from V90)
+    # 3. Land expansion (UNCHANGED from V90 — same 400/500 buffer that was working)
     if unlocked_quads < 3 and day <= 18:
         next_cost = LAND_PRICES[unlocked_quads - 1]
         buffer = 400 if day <= 7 else 500
@@ -115,7 +118,7 @@ def agent(obs):
             money -= next_cost
             unlocked_quads += 1
 
-    # 4. Farm state (UNCHANGED)
+    # 4. Count farm state
     total_unlocked_tiles = unlocked_quads * 25
     melon_tiles = carrot_tiles = wheat_tiles = strawberry_tiles = 0
     for y in range(board_size):
@@ -129,7 +132,7 @@ def agent(obs):
                 elif crop == "WHEAT":      wheat_tiles += 1
                 elif crop == "STRAWBERRY": strawberry_tiles += 1
 
-    # 5. Cournot opponent tracking + town shops (UNCHANGED)
+    # 5. Cournot opponent tracking + town shops (unchanged from V90)
     opp_crops = defaultdict(int)
     if opp_farm:
         for row in opp_farm.get("tiles", []):
@@ -141,9 +144,10 @@ def agent(obs):
     pet_cafes = town_shops.count("PET_CAFE")
     bakeries  = town_shops.count("BAKERY")
 
-    # 6. Seed purchasing (UNCHANGED from V90)
+    # 6. Seed purchasing — FIX 1 is here
     if hour < 20:
         if day <= 18:
+            # Melons (unchanged from V90)
             max_melons = 20 if unlocked_quads >= 2 else 10
             desired_melons = max(0, max_melons - melon_tiles - seeds.get("MELON", 0))
             if desired_melons > 0 and spendable_money >= 80:
@@ -152,16 +156,22 @@ def agent(obs):
                     market_orders.append(["BUY_SEED", "MELON", buy_m])
                     spendable_money -= buy_m * 80
 
+            # FIX 1: Carrot target = ALL non-melon tiles (not just 25)
+            # Non-melon tiles = total_unlocked - melons_committed (in ground + in seed bag)
+            melons_committed = melon_tiles + seeds.get("MELON", 0)
+            non_melon_tiles = max(0, total_unlocked_tiles - melons_committed)
+            # Cournot adjustment from V90
             opp_carrots = opp_crops.get("CARROT", 0)
             carrot_mult = 1.0 + (pet_cafes * 0.4) - (0.1 if opp_carrots > 25 and pet_cafes == 0 else 0.0)
-            target_carrots = int((25 + pet_cafes * 15) * carrot_mult)
+            target_carrots = int(non_melon_tiles * carrot_mult)
             desired_carrots = max(0, target_carrots - carrot_tiles - seeds.get("CARROT", 0))
             if desired_carrots > 0 and spendable_money >= 20:
-                buy_c = min(desired_carrots, int(spendable_money // 20), 10)
+                buy_c = min(desired_carrots, int(spendable_money // 20), 12)
                 if buy_c > 0:
                     market_orders.append(["BUY_SEED", "CARROT", buy_c])
                     spendable_money -= buy_c * 20
 
+            # Wheat baseline (unchanged from V90)
             target_wheat = 15 + (bakeries * 10)
             if seeds.get("WHEAT", 0) < target_wheat and spendable_money >= 10:
                 buy_w = min(target_wheat - seeds.get("WHEAT", 0), int(spendable_money // 10), 10)
@@ -170,10 +180,12 @@ def agent(obs):
                     spendable_money -= buy_w * 10
 
         elif day <= 24:
-            target_carrots = 35 + (pet_cafes * 15)
+            # FIX 1 continued: fill ALL non-wheat tiles with carrots
+            target_carrots = total_unlocked_tiles - wheat_tiles - seeds.get("WHEAT", 0) + (pet_cafes * 10)
+            target_carrots = min(target_carrots, 75)
             desired_carrots = max(0, target_carrots - carrot_tiles - seeds.get("CARROT", 0))
             if desired_carrots > 0 and spendable_money >= 20:
-                buy_c = min(desired_carrots, int(spendable_money // 20), 10)
+                buy_c = min(desired_carrots, int(spendable_money // 20), 12)
                 if buy_c > 0:
                     market_orders.append(["BUY_SEED", "CARROT", buy_c])
                     spendable_money -= buy_c * 20
@@ -185,6 +197,7 @@ def agent(obs):
                     spendable_money -= buy_w * 10
 
         elif day <= 27:
+            # Wheat sprint (unchanged from V90)
             desired_wheat = max(0, 30 - seeds.get("WHEAT", 0))
             if desired_wheat > 0 and spendable_money >= 10:
                 buy_w = min(desired_wheat, int(spendable_money // 10), 15)
@@ -192,18 +205,20 @@ def agent(obs):
                     market_orders.append(["BUY_SEED", "WHEAT", buy_w])
                     spendable_money -= buy_w * 10
 
-    # 7. Task queue (UNCHANGED)
+    # 7. Task queue (UNCHANGED from V90)
     all_units = [farm["farmer"]] + farm.get("hands", [])
     num_units = len(all_units)
-    tasks_watering = []
+
+    tasks_watering  = []
     tasks_harvesting = []
-    tasks_digging = []
-    tasks_planting = []
+    tasks_digging   = []
+    tasks_planting  = []
 
     for y in range(board_size):
         for x in range(board_size):
             tile = farm["tiles"][y][x]
             if tile == "LOCKED": continue
+
             if tile is None:
                 if day < 28 and hour < 20:
                     tasks_planting.append({"type": "PLANT", "pos": (x, y)})
@@ -217,8 +232,10 @@ def agent(obs):
                     age = day - tile.get("planted_day", 0)
                     yield_units = tile.get("yield_units", 0)
                     watered = tile.get("watered_today", False)
+
                     if not watered:
                         tasks_watering.append({"type": "WATER", "pos": (x, y)})
+
                     if crop_data.get("ongoing", False):
                         if yield_units > 0:
                             tasks_harvesting.append({"type": "HARVEST", "pos": (x, y)})
@@ -228,7 +245,7 @@ def agent(obs):
 
     ordered_tasks = tasks_watering + tasks_harvesting + tasks_digging + tasks_planting
 
-    # 8. Unit assignment (UNCHANGED)
+    # 8. Unit assignment engine (UNCHANGED from V90)
     unit_actions    = [None] * num_units
     assigned_tiles  = set()
     local_seeds     = dict(seeds)
@@ -256,12 +273,14 @@ def agent(obs):
                 age = day - u_tile.get("planted_day", 0)
                 yield_units = u_tile.get("yield_units", 0)
                 watered = u_tile.get("watered_today", False)
+
                 if not watered:
                     curr_act = ["WATER"]
                 elif (crop_data.get("ongoing") and yield_units > 0) \
                   or (not crop_data.get("ongoing") and age >= crop_data.get("max_yield_day", 4)) \
                   or day >= 29:
                     curr_act = ["HARVEST"]
+
         elif u_tile is None and (ux, uy) not in assigned_tiles and hour < 20:
             if local_seeds.get("MELON", 0) > 0 and day <= 18:
                 curr_act = ["PLANT", "MELON"]
@@ -292,6 +311,7 @@ def agent(obs):
         ux, uy = all_units[u_idx]
         best_task = None
         best_dist = 999
+
         for task in ordered_tasks:
             tpos = task["pos"]
             if tpos in assigned_tiles: continue
@@ -340,4 +360,9 @@ def agent(obs):
 
     farmer_action = unit_actions[0] if unit_actions[0] is not None else ["PASS"]
     hands_actions = [a if a is not None else ["PASS"] for a in unit_actions[1:]]
-    return {"farmer": farmer_action, "hands": hands_actions, "market": market_orders[:10]}
+
+    return {
+        "farmer": farmer_action,
+        "hands": hands_actions,
+        "market": market_orders[:10],
+    }
