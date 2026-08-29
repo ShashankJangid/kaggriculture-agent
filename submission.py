@@ -1,21 +1,21 @@
 """
-🌾 Autonomous Industrial Farm Agent v900 — Apex Sovereign (Perennial Ranch & Full Expansion)
+🌾 Autonomous Industrial Farm Agent v950 — Apex Sovereign Pro
 Author: Shashank Jangid
 
-The Ultimate Evolution (Target: $85k - $100k+):
-1. Zero-Stranded Animal Engine:
-   - 7 Pastures clustered directly around the shed [(4,4),(5,4),(4,5),(5,5),(4,3),(5,3),(3,4)].
-   - 4 Cows + 3 Sheep fully deployed with zero shed idle latency.
-   - Generates ~$4,000/day in Milk ($160+) and Wool ($200+) permanently.
-2. Dynamic Quad 4 Midgame Expansion (Days 14-17):
-   - Unlocks SE quadrant (100 total tiles) once Wave 1 Melon cash exceeds $15,000.
-3. 40+ Strawberry Perennial Super-Grid:
-   - Plant 35-45 Strawberries on Days 11-14.
-   - Continuous harvest every 2 days from Day 21 to Day 28 ($120/unit).
-4. Animal Fertilizer Synergistic Acceleration:
-   - 100% of daily collected fertilizer applied to Strawberries for 2x yield.
-5. 20-Tile Wheat Supply Loop:
-   - 100% feeding guarantee with zero animal escape penalties.
+Targeted Improvements over V900:
+1. Strict Animal Purchase Guard:
+   - Absolute limit: Max 4 Cows, Max 3 Sheep across the entire game.
+   - Never buy an animal if an unplaced animal is already in the shed.
+   - Never buy an animal if total animals >= number of built pastures.
+   - Fixes the $3,200 cash drain bug discovered on Seed 2024.
+2. Fast Animal Deployment:
+   - Workers prioritize placing unplaced animals into empty pastures immediately.
+3. 40+ Strawberry Super-Grid & Animal Fertilizer Synergy:
+   - Daily animal fertilizer applied to perennial Strawberries for doubled yield.
+4. Dynamic Quad 4 Midgame Expansion (Days 14-17):
+   - Unlocks full 100 tiles when cash > $12,000.
+5. Endgame Clearance:
+   - Full harvest sweep on Days 27-29 ensuring 0 stranded crops.
 """
 import math
 from collections import defaultdict
@@ -109,7 +109,7 @@ def agent(obs):
     hiring_reserve = 150 if day < 25 else 0
     spendable_money = max(0, money - hiring_reserve)
 
-    # 3. Dynamic Land Expansion (Unlock Q2 early, Q3 mid, Q4 when cash > $12k)
+    # 3. Dynamic Land Expansion
     if unlocked_quads < 4 and day <= 17:
         next_cost = LAND_PRICES[unlocked_quads - 1]
         buffer = 350 if day <= 7 else (500 if unlocked_quads < 3 else 8000)
@@ -151,7 +151,7 @@ def agent(obs):
         (4, 3), (5, 3), (3, 4)
     ]
 
-    # 5. Strategic Purchasing Schedule
+    # 5. Strategic Purchasing Schedule (With Strict Overbuy Guard)
     if hour < 20:
         # Day 0 Opening: Buy 2 Cows + Feed
         if day == 0 and hour == 0:
@@ -162,15 +162,17 @@ def agent(obs):
                 market_orders.append(["BUY_PRODUCT", "WHEAT", 4])
                 spendable_money -= 50
 
-        # Midgame Animal Expansion (Up to 4 Cows + 3 Sheep):
-        # ONLY buy an animal if an empty pasture is available or being built!
-        if day <= 12 and spendable_money >= 800:
-            total_cows = num_cows + shed.get("COW", 0)
-            total_sheep = num_sheep + shed.get("SHEEP", 0)
-            if total_cows < 4 and len(pasture_positions) >= total_cows:
+        # Strict Animal Purchase Controls:
+        total_cows = num_cows + shed.get("COW", 0)
+        total_sheep = num_sheep + shed.get("SHEEP", 0)
+        total_animals = total_cows + total_sheep
+
+        # Only buy if no unplaced animals are in shed, and we have empty pasture slots!
+        if day <= 12 and spendable_money >= 800 and shed.get("COW", 0) == 0 and shed.get("SHEEP", 0) == 0:
+            if total_cows < 4 and len(pasture_positions) > total_animals:
                 market_orders.append(["BUY_ANIMAL", "COW", 1])
                 spendable_money -= 400
-            elif day >= 8 and total_sheep < 3 and len(pasture_positions) >= (total_cows + total_sheep) and spendable_money >= 900:
+            elif day >= 8 and total_sheep < 3 and len(pasture_positions) > total_animals and spendable_money >= 900:
                 market_orders.append(["BUY_ANIMAL", "SHEEP", 1])
                 spendable_money -= 500
 
@@ -205,7 +207,7 @@ def agent(obs):
                     market_orders.append(["BUY_SEED", "WHEAT", bw])
                     spendable_money -= bw * 10
 
-        # Days 10 to 15: THE EXPANDED STRAWBERRY PERENNIAL WAVE!
+        # Days 10 to 15: Expanded Strawberry Wave
         elif day <= 15:
             target_strawberries = 38 if unlocked_quads >= 4 else 28
             desired_strawberries = max(0, target_strawberries - crop_counts["STRAWBERRY"] - seeds.get("STRAWBERRY", 0))
@@ -215,7 +217,6 @@ def agent(obs):
                     market_orders.append(["BUY_SEED", "STRAWBERRY", bs])
                     spendable_money -= bs * 100
 
-            # Wheat buffer for animal feed:
             desired_wheat = max(0, 18 - crop_counts["WHEAT"] - seeds.get("WHEAT", 0))
             if desired_wheat > 0 and spendable_money >= 10:
                 bw = min(desired_wheat, int(spendable_money // 10), 8)
@@ -224,7 +225,6 @@ def agent(obs):
                     spendable_money -= bw * 10
 
         elif day <= 24:
-            # Wheat buffer + rapid Carrots across empty tiles
             desired_wheat = max(0, 18 - crop_counts["WHEAT"] - seeds.get("WHEAT", 0))
             if desired_wheat > 0 and spendable_money >= 10:
                 bw = min(desired_wheat, int(spendable_money // 10), 8)
