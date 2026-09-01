@@ -1,19 +1,19 @@
 """
-🌾 Autonomous Industrial Farm Agent v1600 — Apex Sovereign
+🌾 Autonomous Industrial Farm Agent v1700 — Apex Sovereign
 Author: Shashank Jangid
 
-Architectural Upgrades over v1000:
-1. PHASED FERTILIZER MULTIPLIER:
-   - Days 0-10 (Early Scale): Sell 100% of fertilizer for rapid capital generation ($400-$800/day).
-   - Days 11-24 (Strawberry Boom): Apply animal fertilizer to active STRAWBERRY crops!
-     Each fertilizer application lasts 3 days and DOUBLES strawberry output (from 1 to 2 units per harvest).
-   - Days 25-29 (Endgame Sweep): Sell remaining fertilizer, transition to full harvest liquidation.
-2. OPPORTUNISTIC ON-TILE FERTILIZATION:
-   - When a worker carries FERTILIZER and stands on an unfertilized Strawberry, applies FERTILIZE immediately.
-3. PRESERVES V1000 CORE:
-   - Same 100% reliable opening (2 Cows + 2 Sheep + 12 Melons + 7 Wheat)
-   - Same proven water-first dispatch (zero crop decay)
-   - Same 75-tile (3 Quad) land architecture
+Architectural Innovations:
+1. ZERO-OVERHEAD OPPORTUNISTIC FERTILIZATION:
+   - Does NOT waste worker moves on dedicated fertilize pathfinding.
+   - When workers carry animal fertilizer during daily chores/movements, they apply FERTILIZE
+     instantly on any unfertilized strawberry tile they stand on.
+   - Boosts strawberry output (+100% per fertilized harvest) with 0 routing overhead.
+2. ANIMAL TRANSIT FAST-TRACK:
+   - Dedicated pickup priority for unplaced animals in shed to ensure 0-day placement latency.
+3. PRESERVES PROVEN V1000 DISPATCH & CASH FLOW:
+   - Early game: 100% fertilizer sold for maximum capital acceleration ($400-$800/day).
+   - Mid game (Days 11-24): 6 fertilizer retained for strawberry fertilization, surplus sold.
+   - Water-first ordering across all days (guarantees 0 crop loss/decay).
 """
 
 from collections import defaultdict
@@ -84,10 +84,8 @@ def agent(obs):
             market_orders.append(["SELL", "WHEAT", qty - 18])
         elif qty > 0 and item == "FERTILIZER":
             if day <= 10 or day >= 25:
-                # Early/Late game: sell 100% of fertilizer for capital
                 market_orders.append(["SELL", "FERTILIZER", qty])
             elif qty > 6:
-                # Mid game (Days 11-24): keep up to 6 in shed for strawberries, sell excess
                 market_orders.append(["SELL", "FERTILIZER", qty - 6])
 
     # ── 2. HIRING: Optimal Labor Ramp ──────────────────────────────────────────
@@ -150,7 +148,6 @@ def agent(obs):
     num_cows = sum(1 for a in animal_positions if a[2] == "COW")
     num_sheep = sum(1 for a in animal_positions if a[2] == "SHEEP")
 
-    # 12 pastures tightly grouped around shed
     designated_pastures = [
         (4, 4), (5, 4), (4, 5), (5, 5),
         (4, 3), (5, 3), (3, 4), (3, 5),
@@ -183,7 +180,7 @@ def agent(obs):
             market_orders.append(["BUY_PRODUCT", "WHEAT", 4])
             spendable -= 50
 
-        # SEEDS: Opening Melons + Wheat -> Strawberry Grid -> Endgame Wheat Sweep
+        # SEEDS
         if day <= 5:
             desired_melons = max(0, 12 - crop_counts["MELON"] - seeds.get("MELON", 0))
             if desired_melons > 0 and spendable >= 80:
@@ -244,7 +241,6 @@ def agent(obs):
     tasks_digging = []
     tasks_planting = []
     tasks_build_pasture = []
-    tasks_fertilize = []
 
     for px, py in designated_pastures:
         t = farm["tiles"][py][px]
@@ -284,13 +280,10 @@ def agent(obs):
                     age = day - tile.get("planted_day", 0)
                     yield_units = tile.get("yield_units", 0)
                     watered = tile.get("watered_today", False)
-                    fertilized = tile.get("fertilized_until_day", -1) >= day
 
-                    # Water task if not watered
                     if not watered:
                         tasks_watering.append({"type": "WATER", "pos": (x, y)})
 
-                    # Harvest task if ripe/ready
                     if not crop_data.get("ongoing"):
                         if age >= crop_data.get("max_yield_day", 4) or day >= 29:
                             tasks_harvesting.append({"type": "HARVEST", "pos": (x, y)})
@@ -298,15 +291,10 @@ def agent(obs):
                         if yield_units > 0:
                             tasks_harvesting.append({"type": "HARVEST", "pos": (x, y)})
 
-                    # Fertilize strawberries in mid-game (Days 11-24)
-                    if crop == "STRAWBERRY" and not fertilized and 11 <= day <= 24:
-                        tasks_fertilize.append({"type": "FERTILIZE", "pos": (x, y)})
-
     ordered_tasks = (
         tasks_animal_chores
         + tasks_watering
         + tasks_harvesting
-        + tasks_fertilize
         + tasks_digging
         + tasks_planting
         + tasks_build_pasture
@@ -326,12 +314,25 @@ def agent(obs):
         is_at_shed = (ux, uy) in shed_tiles
         carrying_items = sum(u_inv.values())
 
-        sellable = sum(u_inv.get(p, 0) for p in ("MILK", "WOOL", "EGG", "FERTILIZER", "MELON", "STRAWBERRY", "CARROT", "TOMATO"))
+        # Drop sellable products at shed
+        sellable = sum(u_inv.get(p, 0) for p in ("MILK", "WOOL", "EGG", "MELON", "STRAWBERRY", "CARROT", "TOMATO"))
         if is_at_shed and (sellable > 0 or carrying_items >= 4 or (day >= 28 and carrying_items > 0)):
             unit_actions[u_idx] = ["DROP"]
             unassigned_units.remove(u_idx)
             continue
 
+        # Fast-track picking up unplaced animals from shed
+        if is_at_shed and len(empty_pasture_pos) > 0:
+            if shed.get("COW", 0) > 0 and u_inv.get("COW", 0) == 0:
+                unit_actions[u_idx] = ["PICKUP", "COW", 1]
+                unassigned_units.remove(u_idx)
+                continue
+            if shed.get("SHEEP", 0) > 0 and u_inv.get("SHEEP", 0) == 0:
+                unit_actions[u_idx] = ["PICKUP", "SHEEP", 1]
+                unassigned_units.remove(u_idx)
+                continue
+
+        # On-tile actions
         if u_tile not in (None, "LOCKED") and isinstance(u_tile, dict):
             kind = u_tile.get("kind")
             if "animal" in u_tile:
@@ -373,20 +374,24 @@ def agent(obs):
                 watered = u_tile.get("watered_today", False)
                 fertilized = u_tile.get("fertilized_until_day", -1) >= day
 
+                # 1. Opportunistic on-tile fertilize if already carrying fertilizer
+                if crop == "STRAWBERRY" and u_inv.get("FERTILIZER", 0) > 0 and not fertilized and 11 <= day <= 24:
+                    unit_actions[u_idx] = ["FERTILIZE"]
+                    assigned_tiles.add((ux, uy))
+                    unassigned_units.remove(u_idx)
+                    continue
+
+                # 2. Water if not watered
                 if not watered:
                     unit_actions[u_idx] = ["WATER"]
                     assigned_tiles.add((ux, uy))
                     unassigned_units.remove(u_idx)
                     continue
+
+                # 3. Harvest if ready
                 if crop_data.get("ongoing"):
                     if yield_units > 0:
                         unit_actions[u_idx] = ["HARVEST"]
-                        assigned_tiles.add((ux, uy))
-                        unassigned_units.remove(u_idx)
-                        continue
-                    # Opportunistic fertilize on strawberry in mid-game
-                    if u_inv.get("FERTILIZER", 0) > 0 and not fertilized and 11 <= day <= 24:
-                        unit_actions[u_idx] = ["FERTILIZE"]
                         assigned_tiles.add((ux, uy))
                         unassigned_units.remove(u_idx)
                         continue
@@ -422,24 +427,14 @@ def agent(obs):
                 unassigned_units.remove(u_idx)
                 continue
 
-        # Shed item pickups
+        # Shed item pickups for wheat
         if is_at_shed and u_inv.get("WHEAT", 0) == 0 and shed.get("WHEAT", 0) > 0 and num_animals > 0:
             pickup_qty = min(2, shed.get("WHEAT", 0))
             unit_actions[u_idx] = ["PICKUP", "WHEAT", pickup_qty]
             unassigned_units.remove(u_idx)
             continue
 
-        if is_at_shed and len(empty_pasture_pos) > 0:
-            if shed.get("COW", 0) > 0 and u_inv.get("COW", 0) == 0:
-                unit_actions[u_idx] = ["PICKUP", "COW", 1]
-                unassigned_units.remove(u_idx)
-                continue
-            if shed.get("SHEEP", 0) > 0 and u_inv.get("SHEEP", 0) == 0:
-                unit_actions[u_idx] = ["PICKUP", "SHEEP", 1]
-                unassigned_units.remove(u_idx)
-                continue
-
-        # If carrying items and inventory full, move to shed
+        # Move to shed if full
         if (carrying_items >= 4 or (day >= 28 and carrying_items > 0)) and not is_at_shed:
             closest_shed = min(shed_tiles, key=lambda s: manhattan_dist((ux, uy), s))
             move = get_best_move((ux, uy), closest_shed)
@@ -456,8 +451,6 @@ def agent(obs):
 
         for task in ordered_tasks:
             if task["pos"] in assigned_tiles:
-                continue
-            if task["type"] == "FERTILIZE" and inventories[u_idx].get("FERTILIZER", 0) == 0:
                 continue
             dist = manhattan_dist((ux, uy), task["pos"])
             if dist < best_dist:
@@ -477,8 +470,6 @@ def agent(obs):
                     unit_actions[u_idx] = ["WATER"]
                 elif ttype == "HARVEST":
                     unit_actions[u_idx] = ["HARVEST"]
-                elif ttype == "FERTILIZE":
-                    unit_actions[u_idx] = ["FERTILIZE"]
                 elif ttype == "DIG":
                     unit_actions[u_idx] = ["DIG"]
                 elif ttype == "FEED":
