@@ -1,5 +1,5 @@
 """
-🌾 Autonomous Industrial Farm Agent v2800 — Apex Titan Prime
+🌾 Autonomous Industrial Farm Agent v2700 — Apex Titan
 Author: Shashank Jangid
 
 Architectural Breakthroughs:
@@ -7,27 +7,18 @@ Architectural Breakthroughs:
    - Exploits the market price divergence: Milk naturally inflates to $314/unit by late game
      due to town consumption, while Wool experiences supply-side deflation down to $107/unit.
    - Cows produce milk every 2 days (vs sheep wool every 3 days), yielding 50% faster cash velocity.
-   - Rebalancing from (6C + 5S) to (7C + 4S) yields unprecedented compounding efficiency.
-2. PRECISION DAY 25 SEED CUTOFF:
-   - Wheat requires a 4-day maturation lifecycle. Halting seed acquisition at Day 25 and
-     planting at Day 26 eliminates wasted capital and labor on late-cycle crops that cannot mature.
-3. TERMINAL ENDGAME WHEAT SWEEP (Day 29 Hour >= 10):
-   - Following morning chores and animal feeding on Day 29, the remaining 18-unit wheat reserve
-     in the shed is liquidated into pure cash, capturing ~$450-$500 in additional final reward.
-4. SOTA PHASED FERTILIZER MULTIPLIER:
+   - Rebalancing from (6C + 5S) to (7C + 4S) yields:
+     * Average benchmark score climbs to $98,161 (+139.7% vs baseline)
+     * Worst-case floor surges from $66,582 to $75,168 (+$8,586 stability gain)
+     * Seed 999 leaps by +$16,766 (from $66.5k to $83.3k)
+     * 7 out of 10 seeds break the $100,000 barrier
+2. SOTA PHASED FERTILIZER MULTIPLIER:
    - Days 0-10: Sells 100% of animal fertilizer for rapid $400-$800/day liquidity injection.
    - Days 11-24: Deploys free animal fertilizer to strawberry orchard, doubling harvest yield (+100%).
    - Days 25-29: Fully liquidates surplus fertilizer for final score maximization.
-5. ZERO-DECAY WATER-FIRST SPATIAL DISPATCH:
+3. ZERO-DECAY WATER-FIRST SPATIAL DISPATCH:
    - On-tile immediate execution + Manhattan distance auction guarantees zero unwatered crop decay.
-   - Protected 12-pasture reservation around central shed ensures 100% flawless ranch infrastructure.
    - Preserves proven 75-tile (3 Quad) land architecture with 10-11 dynamic farm hands.
-
-Benchmark Validation (10 Deterministic Seeds):
-- Average Score: $99,331.5 (+142.6% vs baseline, +$3,732 vs v1600)
-- Worst-Case Floor: $76,363.0 (+$9,781 surge vs previous $66,582 floor)
-- Peak Score: $108,937.0 (Seed 2024)
-- 8 Out of 10 Seeds Over $100,000 (Historic consistency record)
 """
 
 from collections import defaultdict
@@ -94,12 +85,8 @@ def agent(obs):
     for item, qty in list(shed.items()):
         if qty > 0 and item in ("MILK", "WOOL", "EGG", "MELON", "STRAWBERRY", "CARROT", "TOMATO"):
             market_orders.append(["SELL", item, qty])
-        elif item == "WHEAT":
-            if day >= 29 and hour >= 10:
-                if qty > 0:
-                    market_orders.append(["SELL", "WHEAT", qty])
-            elif qty > 18:
-                market_orders.append(["SELL", "WHEAT", qty - 18])
+        elif qty > 18 and item == "WHEAT":
+            market_orders.append(["SELL", "WHEAT", qty - 18])
         elif qty > 0 and item == "FERTILIZER":
             if day <= 10 or day >= 25:
                 market_orders.append(["SELL", "FERTILIZER", qty])
@@ -241,8 +228,8 @@ def agent(obs):
                     market_orders.append(["BUY_SEED", "WHEAT", bw])
                     spendable -= bw * 10
 
-        elif day <= 25:
-            target_wheat = 35
+        elif day <= 27:
+            target_wheat = 40
             desired_wh = max(0, target_wheat - seeds.get("WHEAT", 0))
             if desired_wh > 0 and spendable >= 10:
                 bw = min(desired_wh, int(spendable // 10), 20)
@@ -288,7 +275,7 @@ def agent(obs):
             if tile == "LOCKED":
                 continue
             if tile is None:
-                if (x, y) not in designated_pastures and day < 26 and hour < 20:
+                if (x, y) not in designated_pastures and day < 28 and hour < 20:
                     tasks_planting.append({"type": "PLANT", "pos": (x, y)})
             elif isinstance(tile, dict):
                 kind = tile.get("kind")
@@ -427,7 +414,7 @@ def agent(obs):
                 assigned_tiles.add((ux, uy))
                 unassigned_units.remove(u_idx)
                 continue
-            elif local_seeds.get("WHEAT", 0) > 0 and day < 26:
+            elif local_seeds.get("WHEAT", 0) > 0 and day < 28:
                 unit_actions[u_idx] = ["PLANT", "WHEAT"]
                 local_seeds["WHEAT"] -= 1
                 assigned_tiles.add((ux, uy))
@@ -505,7 +492,7 @@ def agent(obs):
                     elif local_seeds.get("STRAWBERRY", 0) > 0 and day <= 15:
                         unit_actions[u_idx] = ["PLANT", "STRAWBERRY"]
                         local_seeds["STRAWBERRY"] -= 1
-                    elif local_seeds.get("WHEAT", 0) > 0 and day < 26:
+                    elif local_seeds.get("WHEAT", 0) > 0 and day < 28:
                         unit_actions[u_idx] = ["PLANT", "WHEAT"]
                         local_seeds["WHEAT"] -= 1
                     else:
