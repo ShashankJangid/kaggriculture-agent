@@ -1,13 +1,13 @@
 """
-🌾 Autonomous Industrial Farm Agent v2500 — Sovereign Zenith
+🌾 Autonomous Industrial Farm Agent v2600 — Apex Infinity
 Author: Shashank Jangid
 
-Architectural Masterpiece:
-1. SOTA Phased Fertilizer Compounding Engine:
+Architectural Innovations:
+1. SOTA Extended Phased Fertilizer Pipeline:
    - Early Game (Days 0-10): 100% Animal Fertilizer Monetization ($400-$800/day rapid liquidity)
-   - Mid Game (Days 11-24): Active Strawberry Orchard Fertilization (+100% Strawberry Harvest Yield)
-   - Late Game (Days 25-29): Surplus Fertilizer Liquidation for Maximum Terminal Reward
-2. Precision Opening:
+   - Mid-to-Late Game (Days 11-26): Active Strawberry Orchard Fertilization (+100% Strawberry Harvest Yield through Day 28)
+   - Terminal Endgame (Days 27-29): Surplus Fertilizer Liquidation for Maximum Terminal Reward
+2. Precision Opening & 75-Tile Land Structure:
    - Day 0: 2 Cows + 2 Sheep + 12 Melons + 7 Wheat (Zero low-margin carrot dilution)
    - Day 6-7: Quad 2 Unlock + Ranch expansion to 6 Cows + 5 Sheep (11 animals total)
    - Day 11: Melon Harvest Liquidation (~$17k cash infusion) + Quad 3 Unlock (75 tiles total)
@@ -85,7 +85,7 @@ def agent(obs):
         elif qty > 18 and item == "WHEAT":
             market_orders.append(["SELL", "WHEAT", qty - 18])
         elif qty > 0 and item == "FERTILIZER":
-            if day <= 10 or day >= 25:
+            if day <= 10 or day >= 27:
                 market_orders.append(["SELL", "FERTILIZER", qty])
             elif qty > 6:
                 market_orders.append(["SELL", "FERTILIZER", qty - 6])
@@ -156,7 +156,8 @@ def agent(obs):
         (4, 6), (5, 6), (6, 4), (6, 5),
     ]
 
-    max_pastures = min(len([p for p in designated_pastures if farm["tiles"][p[1]][p[0]] != "LOCKED"]), 11)
+    target_max_pastures = 13 if (day >= 16 and money >= 8000) else 11
+    max_pastures = min(len([p for p in designated_pastures if farm["tiles"][p[1]][p[0]] != "LOCKED"]), target_max_pastures)
 
     # ── 5. PURCHASING ─────────────────────────────────────────────────────────
     if hour < 20:
@@ -169,9 +170,10 @@ def agent(obs):
                 market_orders.append(["BUY_PRODUCT", "WHEAT", 4])
                 spendable -= 50
 
-        elif day <= 10 and shed.get("COW", 0) == 0 and shed.get("SHEEP", 0) == 0:
+        elif day <= 12 and shed.get("COW", 0) == 0 and shed.get("SHEEP", 0) == 0:
             total_animals = num_cows + num_sheep
-            if num_cows < 6 and len(pasture_positions) > total_animals and spendable >= 800:
+            max_cows = 8 if (day >= 16 and money >= 8000) else 6
+            if num_cows < max_cows and len(pasture_positions) > total_animals and spendable >= 800:
                 market_orders.append(["BUY_ANIMAL", "COW", 1])
                 spendable -= 400
             elif day >= 2 and num_sheep < 5 and len(pasture_positions) > total_animals and spendable >= 900:
@@ -182,7 +184,7 @@ def agent(obs):
             market_orders.append(["BUY_PRODUCT", "WHEAT", 4])
             spendable -= 50
 
-        # SEEDS: Opening Melons + Wheat -> Strawberry Grid -> Endgame Wheat Sweep
+        # SEEDS
         if day <= 5:
             desired_melons = max(0, 12 - crop_counts["MELON"] - seeds.get("MELON", 0))
             if desired_melons > 0 and spendable >= 80:
@@ -245,7 +247,7 @@ def agent(obs):
     tasks_build_pasture = []
     tasks_fertilize = []
 
-    for px, py in designated_pastures:
+    for px, py in designated_pastures[:max_pastures]:
         t = farm["tiles"][py][px]
         if t == "LOCKED":
             continue
@@ -271,7 +273,7 @@ def agent(obs):
             if tile == "LOCKED":
                 continue
             if tile is None:
-                if (x, y) not in designated_pastures and day < 28 and hour < 20:
+                if (x, y) not in designated_pastures[:max_pastures] and day < 28 and hour < 20:
                     tasks_planting.append({"type": "PLANT", "pos": (x, y)})
             elif isinstance(tile, dict):
                 kind = tile.get("kind")
@@ -295,7 +297,7 @@ def agent(obs):
                         if yield_units > 0:
                             tasks_harvesting.append({"type": "HARVEST", "pos": (x, y)})
 
-                    if crop == "STRAWBERRY" and not fertilized and 11 <= day <= 24:
+                    if crop == "STRAWBERRY" and not fertilized and 11 <= day <= 26:
                         tasks_fertilize.append({"type": "FERTILIZE", "pos": (x, y)})
 
     ordered_tasks = (
@@ -380,7 +382,7 @@ def agent(obs):
                         assigned_tiles.add((ux, uy))
                         unassigned_units.remove(u_idx)
                         continue
-                    if u_inv.get("FERTILIZER", 0) > 0 and not fertilized and 11 <= day <= 24:
+                    if u_inv.get("FERTILIZER", 0) > 0 and not fertilized and 11 <= day <= 26:
                         unit_actions[u_idx] = ["FERTILIZE"]
                         assigned_tiles.add((ux, uy))
                         unassigned_units.remove(u_idx)
@@ -393,7 +395,7 @@ def agent(obs):
                         continue
 
         elif u_tile is None and (ux, uy) not in assigned_tiles and hour < 20:
-            if (ux, uy) in designated_pastures and len(pasture_positions) < max_pastures:
+            if (ux, uy) in designated_pastures[:max_pastures] and len(pasture_positions) < max_pastures:
                 unit_actions[u_idx] = ["BUILD_PASTURE"]
                 assigned_tiles.add((ux, uy))
                 unassigned_units.remove(u_idx)
