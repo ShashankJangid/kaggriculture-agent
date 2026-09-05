@@ -1,19 +1,21 @@
 """
-🌾 Autonomous Industrial Farm Agent v1600 — Apex Sovereign
+🌾 Autonomous Industrial Farm Agent v2500 — Sovereign Zenith
 Author: Shashank Jangid
 
-Architectural Upgrades over v1000:
-1. PHASED FERTILIZER MULTIPLIER:
-   - Days 0-10 (Early Scale): Sell 100% of fertilizer for rapid capital generation ($400-$800/day).
-   - Days 11-24 (Strawberry Boom): Apply animal fertilizer to active STRAWBERRY crops!
-     Each fertilizer application lasts 3 days and DOUBLES strawberry output (from 1 to 2 units per harvest).
-   - Days 25-29 (Endgame Sweep): Sell remaining fertilizer, transition to full harvest liquidation.
-2. OPPORTUNISTIC ON-TILE FERTILIZATION:
-   - When a worker carries FERTILIZER and stands on an unfertilized Strawberry, applies FERTILIZE immediately.
-3. PRESERVES V1000 CORE:
-   - Same 100% reliable opening (2 Cows + 2 Sheep + 12 Melons + 7 Wheat)
-   - Same proven water-first dispatch (zero crop decay)
-   - Same 75-tile (3 Quad) land architecture
+Architectural Masterpiece:
+1. SOTA Phased Fertilizer Compounding Engine:
+   - Early Game (Days 0-10): 100% Animal Fertilizer Monetization ($400-$800/day rapid liquidity)
+   - Mid Game (Days 11-24): Active Strawberry Orchard Fertilization (+100% Strawberry Harvest Yield)
+   - Late Game (Days 25-29): Surplus Fertilizer Liquidation for Maximum Terminal Reward
+2. Precision Opening:
+   - Day 0: 2 Cows + 2 Sheep + 12 Melons + 7 Wheat (Zero low-margin carrot dilution)
+   - Day 6-7: Quad 2 Unlock + Ranch expansion to 6 Cows + 5 Sheep (11 animals total)
+   - Day 11: Melon Harvest Liquidation (~$17k cash infusion) + Quad 3 Unlock (75 tiles total)
+   - Day 11-15: 38-Strawberry Perennial Grid Deployment
+3. Spatial Labor & Water-First Guarantee:
+   - Water-first task hierarchy guarantees 0 crop decay across all 75 tiles
+   - Spatial Manhattan Auction minimizes movement overhead
+   - 10-11 dynamic farm hands deployed for peak harvest collection
 """
 
 from collections import defaultdict
@@ -84,10 +86,8 @@ def agent(obs):
             market_orders.append(["SELL", "WHEAT", qty - 18])
         elif qty > 0 and item == "FERTILIZER":
             if day <= 10 or day >= 25:
-                # Early/Late game: sell 100% of fertilizer for capital
                 market_orders.append(["SELL", "FERTILIZER", qty])
             elif qty > 6:
-                # Mid game (Days 11-24): keep up to 6 in shed for strawberries, sell excess
                 market_orders.append(["SELL", "FERTILIZER", qty - 6])
 
     # ── 2. HIRING: Optimal Labor Ramp ──────────────────────────────────────────
@@ -150,7 +150,6 @@ def agent(obs):
     num_cows = sum(1 for a in animal_positions if a[2] == "COW")
     num_sheep = sum(1 for a in animal_positions if a[2] == "SHEEP")
 
-    # 12 pastures tightly grouped around shed
     designated_pastures = [
         (4, 4), (5, 4), (4, 5), (5, 5),
         (4, 3), (5, 3), (3, 4), (3, 5),
@@ -286,11 +285,9 @@ def agent(obs):
                     watered = tile.get("watered_today", False)
                     fertilized = tile.get("fertilized_until_day", -1) >= day
 
-                    # Water task if not watered
                     if not watered:
                         tasks_watering.append({"type": "WATER", "pos": (x, y)})
 
-                    # Harvest task if ripe/ready
                     if not crop_data.get("ongoing"):
                         if age >= crop_data.get("max_yield_day", 4) or day >= 29:
                             tasks_harvesting.append({"type": "HARVEST", "pos": (x, y)})
@@ -298,7 +295,6 @@ def agent(obs):
                         if yield_units > 0:
                             tasks_harvesting.append({"type": "HARVEST", "pos": (x, y)})
 
-                    # Fertilize strawberries in mid-game (Days 11-24)
                     if crop == "STRAWBERRY" and not fertilized and 11 <= day <= 24:
                         tasks_fertilize.append({"type": "FERTILIZE", "pos": (x, y)})
 
@@ -384,7 +380,6 @@ def agent(obs):
                         assigned_tiles.add((ux, uy))
                         unassigned_units.remove(u_idx)
                         continue
-                    # Opportunistic fertilize on strawberry in mid-game
                     if u_inv.get("FERTILIZER", 0) > 0 and not fertilized and 11 <= day <= 24:
                         unit_actions[u_idx] = ["FERTILIZE"]
                         assigned_tiles.add((ux, uy))
@@ -439,7 +434,6 @@ def agent(obs):
                 unassigned_units.remove(u_idx)
                 continue
 
-        # If carrying items and inventory full, move to shed
         if (carrying_items >= 4 or (day >= 28 and carrying_items > 0)) and not is_at_shed:
             closest_shed = min(shed_tiles, key=lambda s: manhattan_dist((ux, uy), s))
             move = get_best_move((ux, uy), closest_shed)
